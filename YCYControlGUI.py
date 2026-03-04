@@ -4,11 +4,11 @@ YCY 设备控制 GUI 界面
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import asyncio
 import threading
 import queue
-from core import YCY_FJB_Device, RandomController
+from core import YCY_FJB_Device, RandomController, ScriptController
 
 class YCYControlGUI:
     """
@@ -42,6 +42,9 @@ class YCYControlGUI:
         # 初始化变量
         self.device = None
         self.controller = None
+        self.script_controller = None
+        self.script_path = None
+        self.is_script_running = False
         self.loop = None
         self.thread = None
         self.queue = queue.Queue()
@@ -339,6 +342,29 @@ class YCYControlGUI:
         self.stop_random_btn = ttk.Button(random_buttons_frame, text="停止随机控制", command=self.stop_random_control, state=tk.DISABLED)
         self.stop_random_btn.pack(side=tk.RIGHT, padx=5, fill=tk.X, expand=True)
 
+        # 脚本控制
+        script_frame = ttk.LabelFrame(right_frame, text="脚本控制", padding=15)
+        script_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+
+        script_buttons_frame = ttk.Frame(script_frame)
+        script_buttons_frame.pack(fill=tk.X, pady=5)
+
+        self.script_path_var = tk.StringVar(value="未选择脚本")
+        script_path_label = ttk.Label(script_buttons_frame, textvariable=self.script_path_var, width=25)
+        script_path_label.pack(side=tk.LEFT, padx=5)
+
+        select_script_btn = ttk.Button(script_buttons_frame, text="选择脚本", command=self.select_script_file)
+        select_script_btn.pack(side=tk.LEFT, padx=5)
+
+        script_actions_frame = ttk.Frame(script_frame)
+        script_actions_frame.pack(fill=tk.X, pady=5)
+
+        self.start_script_btn = ttk.Button(script_actions_frame, text="启动脚本", command=self.start_script_control)
+        self.start_script_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        self.stop_script_btn = ttk.Button(script_actions_frame, text="停止脚本", command=self.stop_script_control, state=tk.DISABLED)
+        self.stop_script_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=5)
+
         # 设备信息
         info_frame = ttk.LabelFrame(right_frame, text="设备信息", padding=15)
         info_frame.pack(fill=tk.BOTH, expand=True)
@@ -500,6 +526,10 @@ class YCYControlGUI:
         if self.is_random_running:
             self.stop_random_control()
 
+        # 停止脚本控制（如果正在运行）
+        if getattr(self, 'is_script_running', False):
+            self.stop_script_control()
+
         # 停止所有通道的控制
         def stop_task():
             async def do_stop():
@@ -542,6 +572,11 @@ class YCYControlGUI:
         # 保存随机控制状态
         is_random_running = self.is_random_running
         random_controller = self.controller if self.is_random_running else None
+
+        # 脚本目前暂不支持临时暂停后恢复运行进度，所以如果有脚本在运行先停止
+        if getattr(self, 'is_script_running', False):
+            self.stop_script_control()
+            messagebox.showinfo("提示", "临时停止已触发，脚本运行已终止。需重新启动脚本。")
 
         # 生成10-30秒的随机时间
         import random
@@ -680,6 +715,10 @@ class YCYControlGUI:
         # 停止随机控制
         if self.is_random_running:
             self.stop_random_control()
+
+        # 停止脚本控制
+        if getattr(self, 'is_script_running', False):
+            self.stop_script_control()
 
         # 在异步线程中执行断开操作
         def disconnect_task():
@@ -847,6 +886,76 @@ class YCYControlGUI:
         self.start_random_btn.config(state=tk.NORMAL)
         self.stop_random_btn.config(state=tk.DISABLED)
         messagebox.showinfo("成功", "随机控制已停止")
+
+    def select_script_file(self):
+        """选择脚本文件"""
+        file_path = filedialog.askopenfilename(
+            title="选择脚本文件",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if file_path:
+            self.script_path = file_path
+            # 取文件名显示
+            import os
+            filename = os.path.basename(file_path)
+            self.script_path_var.set(filename)
+
+    def start_script_control(self):
+        """启动脚本控制"""
+        if not self.is_connected:
+            messagebox.showinfo("提示", "请先连接设备")
+            return
+
+        if not getattr(self, 'script_path', None):
+            messagebox.showinfo("提示", "请先选择脚本文件")
+            return
+
+        if getattr(self, 'is_script_running', False):
+            return
+
+        # 创建控制器
+        self.script_controller = ScriptController(self.device)
+
+        def start_task():
+            async def do_start():
+                try:
+                    await self.script_controller.start(self.script_path)
+                    self.queue.put(lambda: self.on_script_control_started())
+                except Exception as e:
+                    self.queue.put(lambda e=e: messagebox.showerror("错误", f"脚本执行错误:\n{e}"))
+
+            if self.loop:
+                asyncio.run_coroutine_threadsafe(do_start(), self.loop)
+
+        threading.Thread(target=start_task, daemon=True).start()
+
+    def on_script_control_started(self):
+        self.is_script_running = True
+        self.start_script_btn.config(state=tk.DISABLED)
+        self.stop_script_btn.config(state=tk.NORMAL)
+        print("脚本控制已启动")
+
+    def stop_script_control(self):
+        """停止脚本控制"""
+        if not getattr(self, 'is_script_running', False):
+            return
+
+        def stop_task():
+            async def do_stop():
+                if self.script_controller:
+                    await self.script_controller.stop()
+                self.queue.put(lambda: self.on_script_control_stopped())
+
+            if self.loop:
+                asyncio.run_coroutine_threadsafe(do_stop(), self.loop)
+
+        threading.Thread(target=stop_task, daemon=True).start()
+
+    def on_script_control_stopped(self):
+        self.is_script_running = False
+        self.start_script_btn.config(state=tk.NORMAL)
+        self.stop_script_btn.config(state=tk.DISABLED)
+        messagebox.showinfo("成功", "脚本控制已停止")
 
     def get_device_info(self):
         """

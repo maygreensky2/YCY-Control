@@ -1,0 +1,51 @@
+{
+    "name": "Test Script",
+    "loop": true,
+    "actions": [
+        {
+            "duration": 5.0,
+            "A": {
+                "type": "speed",
+                "value": 20
+            },
+            "B": {
+                "type": "mode",
+                "value": 3
+            },
+            "C": {
+                "type": "speed",
+                "value": 0
+            }
+        },
+        {
+            "duration": 5.0,
+            "A": {
+                "type": "speed",
+                "value": 10
+            },
+            "B": {
+                "type": "speed",
+                "value": 10
+            },
+            "C": {
+                "type": "mode",
+                "value": 2
+            }
+        },
+        {
+            "duration": 3.0,
+            "A": {
+                "type": "speed",
+                "value": 0
+            },
+            "B": {
+                "type": "mode",
+                "value": 0
+            },
+            "C": {
+                "type": "speed",
+                "value": 0
+            }
+        }
+    ]
+}

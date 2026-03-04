@@ -2,10 +2,12 @@
 
 from .ycy_fjb import YCY_FJB_Device
 from .random_controller import RandomController, start_random_control, stop_random_control
+from .script_controller import ScriptController
 
 __all__ = [
     "YCY_FJB_Device",
     "RandomController",
     "start_random_control",
-    "stop_random_control"
+    "stop_random_control",
+    "ScriptController"
 ]
